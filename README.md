@@ -6,7 +6,7 @@
 [![CI](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/adityonugrohoid/trailing-edge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Async Binance trading bot with dynamic trailing take-profit, Donchian-gated hard stop, regime detection, ED25519 auth, and systemd deployment.**
+**Async Binance trading bot with dynamic trailing take-profit, Donchian-gated hard stop, regime detection, ED25519 auth, and systemd deployment**
 
 [Getting Started](#getting-started) | [Usage](#usage) | [Architecture](#architecture) | [How It Works](#how-it-works) | [Deployment](#deployment)
 
@@ -31,7 +31,6 @@
 - [Project Structure](#project-structure)
 - [Testing](#testing)
 - [Deployment](#deployment)
-- [Related Projects](#related-projects)
 - [License](#license)
 - [Author](#author)
 
