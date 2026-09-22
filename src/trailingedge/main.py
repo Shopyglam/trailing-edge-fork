@@ -35,6 +35,7 @@ from trailingedge.config import (
     START_FACTOR,
     SYMBOL,
 )
+from trailingedge.indicators.atr import get_dynamic_stop_loss
 from trailingedge.indicators.donchian import compute_donchian_channels
 from trailingedge.logging_config import get_logger, setup_logging
 from trailingedge.notifications.telegram import broadcast_telegram_message
@@ -853,8 +854,23 @@ async def main_trading_loop(ws):
         # 8. Hard Stop Logic (Donchian Gate) and Persistent Maker Exit
         # ====================================================================================================================================================
 
+        # Calculate dynamic ATR hard stop threshold if enabled
+        effective_hard_stop_thresh = HARD_STOP_THRESHOLD_FRAC
+        import trailingedge.config as config_mod
+        if getattr(config_mod, 'DYNAMIC_ATR_ENABLED', True):
+            effective_hard_stop_thresh = get_dynamic_stop_loss(
+                rolling_klines,
+                ask if regime == "QUOTE" else bid,
+                multiplier=getattr(config_mod, 'ATR_MULTIPLIER', 1.5),
+                min_stop=getattr(config_mod, 'DYNAMIC_STOP_MIN_FRAC', 0.005),
+                max_stop=getattr(config_mod, 'DYNAMIC_STOP_MAX_FRAC', 0.050),
+                period=getattr(config_mod, 'ATR_PERIOD', 14),
+                row_format="dict",
+                static_fallback=HARD_STOP_THRESHOLD_FRAC,
+            )
+
         # 1. Donchian hard stop trigger (ALWAYS RUNS)
-        if value_drop_frac(current_value, anchor) >= HARD_STOP_THRESHOLD_FRAC:
+        if value_drop_frac(current_value, anchor) >= effective_hard_stop_thresh:
             if not state.donchian_gate_active:
                 state.donchian_gate_active = True
                 state.last_donchian_regime = regime
@@ -862,7 +878,7 @@ async def main_trading_loop(ws):
                 print(f"[{now()}] Donchian hard stop triggered: regime={regime}")
                 logger = get_logger()
                 logger.warning(
-                    f"Donchian hard stop triggered: regime={regime}, value_drop={value_drop_frac(current_value, anchor):.4%}, threshold={HARD_STOP_THRESHOLD_FRAC:.4%}"
+                    f"Donchian hard stop triggered: regime={regime}, value_drop={value_drop_frac(current_value, anchor):.4%}, threshold={effective_hard_stop_thresh:.4%}"
                 )
             # (For BASE, persistent exit proceeds in order block below. For QUOTE, just pause/restrict until Donchian mid-cross.)
 
@@ -891,6 +907,8 @@ async def main_trading_loop(ws):
                     qty,
                     clientOrderId="HARD_STOP_SELL",
                     origClientOrderId="HARD_STOP_SELL",
+                    account_snapshot=account_snapshot,
+                    state=state,
                 )
                 print(
                     f"[{now()}] HARD_STOP LIMIT_MAKER SELL SENT | Qty: {qty:.8f} | Price: {bid:.2f}"
@@ -946,6 +964,8 @@ async def main_trading_loop(ws):
                         qty,
                         clientOrderId=client_id,
                         origClientOrderId=client_id,
+                        account_snapshot=account_snapshot,
+                        state=state,
                     )
                     print(
                         f"[{now()}] LIMIT_MAKER {side} SENT | Qty: {qty:.8f} | Price: {price:.2f}"
@@ -961,7 +981,7 @@ async def main_trading_loop(ws):
 
         value_drop = anchor - current_value
         value_drop_frac_pct = 100 * value_drop / anchor if anchor > 0 else 0
-        hard_stop_thresh_pct = 100 * HARD_STOP_THRESHOLD_FRAC
+        hard_stop_thresh_pct = 100 * effective_hard_stop_thresh
 
         # --- Print running state ---
         print("\n" + "=" * 60)
@@ -977,8 +997,9 @@ async def main_trading_loop(ws):
         print(
             f"  Current:   {fmt(current_value)} ({value_unit}) | "
             f"Drop from anchor: {fmt(value_drop)} ({value_drop_frac_pct:.4f}%) "
-            f"[Hard Stop Thresh: {HARD_STOP_THRESHOLD_FRAC:.5f} ({hard_stop_thresh_pct:.4f}%)]"
+            f"[Hard Stop Thresh (Dynamic ATR): {effective_hard_stop_thresh:.5f} ({hard_stop_thresh_pct:.4f}%)]"
         )
+        print(f"  High:      {fmt(state.high_value)}")
         print(f"  High:      {fmt(state.high_value)}")
         print("-" * 60)
         # --- Donchian Diagnostics ---

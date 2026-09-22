@@ -169,6 +169,11 @@ def validate_kline_config():
 def validate_environment_variables():
     """Validate that required environment variables are set."""
     from dotenv import load_dotenv
+    from trailingedge.config import DRY_RUN
+
+    if DRY_RUN:
+        return
+
 
     # Load .env file
     load_dotenv()
@@ -195,6 +200,11 @@ def validate_environment_variables():
 def validate_secrets_files():
     """Validate that required secrets files exist and are readable."""
     from dotenv import load_dotenv
+    from trailingedge.config import DRY_RUN
+
+    if DRY_RUN:
+        return
+
 
     load_dotenv()
 
@@ -218,6 +228,29 @@ def validate_secrets_files():
         )
 
 
+def validate_safety_config():
+    """Validate safety and risk management configuration."""
+    errors = []
+
+    # Optional safety params - only validate if they exist in config
+    if hasattr(config, "CONSECUTIVE_LOSS_THRESHOLD"):
+        if config.CONSECUTIVE_LOSS_THRESHOLD <= 0:
+            errors.append(f"CONSECUTIVE_LOSS_THRESHOLD must be > 0, got {config.CONSECUTIVE_LOSS_THRESHOLD}")
+
+    if hasattr(config, "COOLDOWN_MINUTES"):
+        if config.COOLDOWN_MINUTES <= 0:
+            errors.append(f"COOLDOWN_MINUTES must be > 0, got {config.COOLDOWN_MINUTES}")
+
+    if hasattr(config, "MIN_VOLUME_THRESHOLD"):
+        if config.MIN_VOLUME_THRESHOLD < 0:
+            errors.append(f"MIN_VOLUME_THRESHOLD must be >= 0, got {config.MIN_VOLUME_THRESHOLD}")
+
+    if errors:
+        raise ConfigValidationError(
+            "Safety configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
 def validate_all_config():
     """
     Run all configuration validators.
@@ -231,6 +264,7 @@ def validate_all_config():
         ("Kline Config", validate_kline_config),
         ("Environment Variables", validate_environment_variables),
         ("Secrets Files", validate_secrets_files),
+        ("Safety Config", validate_safety_config),
     ]
 
     print("[Config Validator] Starting configuration validation...")

@@ -64,7 +64,7 @@ async def stream_bookticker_shared(symbol: str, snapshot_dict: dict):
         except websockets.exceptions.ConnectionClosedError as e:
             retry_count += 1
             print(
-                f"[{now()}] [ERROR] BookTicker WebSocket connection closed: {e.code} - {e.reason}"
+                f"[{now()}] [ERROR] BookTicker WebSocket connection closed: {getattr(e, 'rcvd', e).code if hasattr(getattr(e, 'rcvd', e), 'code') else 'Unknown'} - {getattr(e, 'rcvd', e).reason if hasattr(getattr(e, 'rcvd', e), 'reason') else 'Unknown'}"
             )
             if retry_count < MAX_RETRIES:
                 delay = RETRY_DELAYS[retry_count - 1]
@@ -135,7 +135,7 @@ async def stream_kline_shared(
         except websockets.exceptions.ConnectionClosedError as e:
             retry_count += 1
             print(
-                f"[{now()}] [ERROR] Kline WebSocket connection closed: {e.code} - {e.reason}"
+                f"[{now()}] [ERROR] Kline WebSocket connection closed: {getattr(e, 'rcvd', e).code if hasattr(getattr(e, 'rcvd', e), 'code') else 'Unknown'} - {getattr(e, 'rcvd', e).reason if hasattr(getattr(e, 'rcvd', e), 'reason') else 'Unknown'}"
             )
             if retry_count < MAX_RETRIES:
                 delay = RETRY_DELAYS[retry_count - 1]

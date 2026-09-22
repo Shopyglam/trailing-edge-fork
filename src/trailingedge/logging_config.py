@@ -46,11 +46,7 @@ def setup_logging(
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Console handler (INFO level for important events only)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # Console handler removed to prevent duplicate logs (we use print() for console)
 
     # Create timestamped log filename for this session
     session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

@@ -121,53 +121,74 @@ async def fetch_kline_batch(
     return json.loads(response)
 
 
-async def fetch_kline_historical_custom_limit(
-    ws, symbol, interval="1m", total_candles=1440, time_zone="0"
+def get_interval_ms(interval: str) -> int:
+    unit = interval[-1]
+    val = int(interval[:-1])
+    if unit == 's': return val * 1000
+    if unit == 'm': return val * 60 * 1000
+    if unit == 'h': return val * 60 * 60 * 1000
+    if unit == 'd': return val * 24 * 60 * 60 * 1000
+    return 60000
+
+async def fetch_klines_between(
+    ws, symbol, interval="1m", start_time_ms=None, end_time_ms=None, time_zone="0"
 ):
     """
-    Fetches up to total_candles klines via Binance WS-API v3, batching as needed.
-    Returns: flat list of klines (raw WS API format).
+    Fetches all klines between start_time_ms and end_time_ms by looping and batching (max 1000 per req).
+    Respects Binance WebSocket API rate limit of 5 requests/sec with a 0.25s sleep.
     """
+    if start_time_ms is None or end_time_ms is None:
+        raise ValueError("start_time_ms and end_time_ms must be provided")
 
     klines = []
-    fetch_limit = min(total_candles, 1000)
-    end_time = int(time.time() // 60 * 60 * 1000)
-    start_time = end_time - total_candles * 60 * 1000
+    current_start = start_time_ms
+    limit = 1000
+    
+    print(f"[{now()}] Starting bulk fetch for {symbol} {interval} from {fmt_utc_minute(start_time_ms)} to {fmt_utc_minute(end_time_ms)}")
 
-    # --- First batch
-    resp = await fetch_kline_batch(
-        ws=ws,
-        symbol=symbol,
-        interval=interval,
-        limit=fetch_limit,
-        start_time=start_time,
-        time_zone=time_zone,
-    )
-    klines += resp.get("result", [])
-
-    # --- Additional batch if needed
-    remaining = total_candles - fetch_limit
-    if remaining > 0 and len(klines) > 0:
-        last_close_time = klines[-1][6]  # [6] = close_time in ms
-        resp2 = await fetch_kline_batch(
+    while current_start < end_time_ms:
+        resp = await fetch_kline_batch(
             ws=ws,
             symbol=symbol,
             interval=interval,
-            limit=remaining,
-            start_time=last_close_time + 1,
-            end_time=end_time,
+            limit=limit,
+            start_time=current_start,
+            end_time=end_time_ms,
             time_zone=time_zone,
         )
-        klines += resp2.get("result", [])
+        batch = resp.get("result", [])
+        if not batch:
+            break
+            
+        klines.extend(batch)
+        
+        if len(batch) < limit:
+            # We reached the end (less than 1000 returned means no more data)
+            break
+            
+        # [6] is close_time
+        last_close_time = batch[-1][6]
+        current_start = last_close_time + 1
+        
+        # Rate limit compliance (5 req/sec)
+        await asyncio.sleep(0.25)
 
-    if len(klines) < total_candles:
-        print(
-            f"[{now()}] WARNING: Fetched {len(klines)} candles (expected {total_candles})"
-        )
-    else:
-        print(f"[{now()}] Successfully fetched {len(klines)} klines")
-
+    print(f"[{now()}] Successfully bulk fetched {len(klines)} {interval} klines")
     return klines
+
+
+async def fetch_kline_historical_custom_limit(
+    ws, symbol: str, interval: str = "1m", total_candles: int = 1440, time_zone: str = "0"
+):
+    """
+    Fetch a specified total number of historical candles ending at the current timestamp.
+    """
+    end_time_ms = int(time.time() * 1000)
+    start_time_ms = end_time_ms - (total_candles * get_interval_ms(interval))
+    return await fetch_klines_between(
+        ws, symbol, interval=interval, start_time_ms=start_time_ms, end_time_ms=end_time_ms, time_zone=time_zone
+    )
+
 
 
 async def main_fetch_atr_dual_channel_chart():
@@ -179,8 +200,10 @@ async def main_fetch_atr_dual_channel_chart():
             f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Connected and authenticated for ATR chart fetch."
         )
 
-        klines = await fetch_kline_historical_custom_limit(
-            ws, SYMBOL, interval=INTERVAL, total_candles=TOTAL, time_zone=TIME_ZONE
+        end_time_ms = int(time.time() * 1000)
+        start_time_ms = end_time_ms - (TOTAL * get_interval_ms(INTERVAL))
+        klines = await fetch_klines_between(
+            ws, SYMBOL, interval=INTERVAL, start_time_ms=start_time_ms, end_time_ms=end_time_ms, time_zone=TIME_ZONE
         )
         if not klines or len(klines) < TOTAL:
             print(
@@ -289,8 +312,10 @@ async def main_fetch_donchian_channel_chart():
             f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Connected and authenticated for Donchian Channel chart fetch."
         )
 
-        klines = await fetch_kline_historical_custom_limit(
-            ws, SYMBOL, interval=INTERVAL, total_candles=TOTAL, time_zone=TIME_ZONE
+        end_time_ms = int(time.time() * 1000)
+        start_time_ms = end_time_ms - (TOTAL * get_interval_ms(INTERVAL))
+        klines = await fetch_klines_between(
+            ws, SYMBOL, interval=INTERVAL, start_time_ms=start_time_ms, end_time_ms=end_time_ms, time_zone=TIME_ZONE
         )
         if not klines or len(klines) < TOTAL:
             print(

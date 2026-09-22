@@ -222,3 +222,43 @@ def rolling_percentile(arr, window, percentile=80):
         .apply(lambda x: np.percentile(x, percentile))
         .to_numpy()
     )
+
+
+def get_dynamic_stop_loss(
+    klines,
+    current_price,
+    multiplier=1.5,
+    min_stop=0.005,
+    max_stop=0.050,
+    period=14,
+    row_format="dict",
+    static_fallback=0.005,
+):
+    """
+    Compute dynamic ATR-scaled hard stop loss fraction based on real-time market volatility.
+
+    Args:
+        klines: List of klines (dicts or REST rows)
+        current_price: Current asset price
+        multiplier: Scale factor for ATR (default 1.5)
+        min_stop: Floor stop loss fraction (default 0.005 / 0.5%)
+        max_stop: Ceiling stop loss fraction (default 0.050 / 5.0%)
+        period: ATR calculation period (default 14)
+        row_format: 'dict' or 'row'
+        static_fallback: Fallback fraction if ATR is unavailable
+
+    Returns:
+        Float clamped stop loss fraction (e.g., 0.025 for 2.5%)
+    """
+    if not klines or current_price is None or current_price <= 0:
+        return static_fallback
+
+    atr_val = compute_atr(
+        klines, period=period, method="wilder", row_format=row_format, return_series=False
+    )
+    if atr_val is None or atr_val <= 0:
+        return static_fallback
+
+    raw_stop = (atr_val / float(current_price)) * float(multiplier)
+    return float(np.clip(raw_stop, min_stop, max_stop))
+
