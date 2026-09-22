@@ -79,8 +79,10 @@ def process_dry_run_fill(side, price, qty, symbol, account_snapshot=None, state=
         broadcast_event("marker", {"side": "SELL", "type": "LIMIT_MAKER", "price": price, "qty": actual_qty_sold, "symbol": symbol})
 
 
-async def place_limit_order(ws, symbol, side, price, qty, account_snapshot=None, state=None):
+async def place_limit_order(ws, symbol, side, price, qty, clientOrderId=None, account_snapshot=None, state=None):
     """Place a limit order."""
+    if clientOrderId is None:
+        clientOrderId = str(uuid.uuid4())
     payload = {
         "id": "order_place",
         "method": "order.place",
@@ -91,18 +93,22 @@ async def place_limit_order(ws, symbol, side, price, qty, account_snapshot=None,
             "timeInForce": "GTC",
             "price": f"{price:.8f}",
             "quantity": f"{qty:.8f}",
+            "newClientOrderId": clientOrderId,
             "timestamp": get_server_timestamp(),
         },
     }
     if DRY_RUN:
         print(f"\n[DRY RUN] 🟢 Simulated LIMIT {side} order for {qty} {symbol} at {price}\n")
         process_dry_run_fill(side, price, qty, symbol, account_snapshot, state)
-        return
+        return clientOrderId
     await ws.send(json.dumps(payload))
+    return clientOrderId
 
 
-async def place_market_order(ws, symbol, side, qty, account_snapshot=None, state=None, price=None):
+async def place_market_order(ws, symbol, side, qty, clientOrderId=None, account_snapshot=None, state=None, price=None):
     """Place a market order."""
+    if clientOrderId is None:
+        clientOrderId = str(uuid.uuid4())
     payload = {
         "id": "order_place_market",
         "method": "order.place",
@@ -111,6 +117,7 @@ async def place_market_order(ws, symbol, side, qty, account_snapshot=None, state
             "side": side,
             "type": "MARKET",
             "quantity": f"{qty:.8f}",
+            "newClientOrderId": clientOrderId,
             "timestamp": get_server_timestamp(),
         },
     }
@@ -118,8 +125,9 @@ async def place_market_order(ws, symbol, side, qty, account_snapshot=None, state
         print(f"\n[DRY RUN] 🟢 Simulated MARKET {side} order for {qty} {symbol}\n")
         fill_price = price if price is not None else 0.0
         process_dry_run_fill(side, fill_price, qty, symbol, account_snapshot, state)
-        return
+        return clientOrderId
     await ws.send(json.dumps(payload))
+    return clientOrderId
 
 
 async def cancel_all_orders(ws, symbol="BTCFDUSD"):
@@ -131,6 +139,22 @@ async def cancel_all_orders(ws, symbol="BTCFDUSD"):
     }
     if DRY_RUN:
         print(f"\n[DRY RUN] 🛑 Simulated CANCEL ALL orders for {symbol}\n")
+        return
+    await ws.send(json.dumps(payload))
+
+
+async def query_order_status(ws, symbol, origClientOrderId):
+    """Query order status using WebSocket API."""
+    payload = {
+        "id": f"status_{origClientOrderId}",
+        "method": "order.status",
+        "params": {
+            "symbol": symbol,
+            "origClientOrderId": origClientOrderId,
+            "timestamp": get_server_timestamp()
+        }
+    }
+    if DRY_RUN:
         return
     await ws.send(json.dumps(payload))
 

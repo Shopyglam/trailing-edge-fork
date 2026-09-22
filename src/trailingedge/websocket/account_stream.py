@@ -24,15 +24,20 @@ def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def account_ws_receiver(ws, snapshot_dict):
+async def account_ws_receiver(ws, snapshot_dict, order_snapshot_dict=None):
     """
     Listens for WS messages and updates snapshot_dict for balance changes.
+    Also updates order_snapshot_dict for execution reports.
     Never breaks on error; always continues unless ws is closed.
     """
+    if order_snapshot_dict is None:
+        order_snapshot_dict = {}
+
     while True:
         try:
             msg = await ws.recv()
             parse_account_balance_event(msg, snapshot_dict)
+            parse_execution_report_event(msg, order_snapshot_dict)
         except websockets.exceptions.ConnectionClosed:
             print(
                 f"[{now()}] [ERROR] WS connection closed in account_ws_receiver, exiting loop."
@@ -72,6 +77,42 @@ def parse_account_balance_event(message: str, snapshot_dict: dict) -> bool:
     except Exception:
         # Instead of spamming, you can log once, or suppress completely
         # print(f"[{now()}] Non-account message skipped: {e}")
+        return False
+
+
+def parse_execution_report_event(message: str, order_snapshot_dict: dict) -> bool:
+    """
+    Parse executionReport event and update order_snapshot_dict.
+    Returns True if successfully parsed, False otherwise.
+    """
+    try:
+        data = json.loads(message)
+        if not isinstance(data, dict):
+            return False
+        if "event" in data:
+            data = data["event"]
+            
+        if data.get("e") == "executionReport":
+            client_id = data.get("c")
+            if client_id:
+                order_snapshot_dict[client_id] = {
+                    "orderId": data.get("i"),
+                    "clientOrderId": client_id,
+                    "status": data.get("X"),
+                    "side": data.get("S"),
+                    "type": data.get("o"),
+                    "filled_qty": float(data.get("z", 0.0)),
+                    "total_qty": float(data.get("q", 0.0)),
+                    "quote_qty_filled": float(data.get("Z", 0.0)),
+                    "commission": float(data.get("n", 0.0)),
+                    "commission_asset": data.get("N"),
+                    "last_fill_qty": float(data.get("l", 0.0)),
+                    "last_fill_price": float(data.get("L", 0.0)),
+                    "timestamp": data.get("E")
+                }
+            return True
+        return False
+    except Exception:
         return False
 
 
@@ -119,7 +160,8 @@ if __name__ == "__main__":
             print(f"[{now()}] ✅ Subscribed to userDataStream.")
 
             # Launch the receiver as a background task
-            asyncio.create_task(account_ws_receiver(ws, snapshot))
+            order_snapshot = {}
+            asyncio.create_task(account_ws_receiver(ws, snapshot, order_snapshot))
 
             while True:
                 reduced = get_balance_from_snapshot(snapshot, BASE_ASSET, QUOTE_ASSET)
