@@ -24,20 +24,39 @@ def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def account_ws_receiver(ws, snapshot_dict, order_snapshot_dict=None):
+async def account_ws_receiver(ws, snapshot_dict, order_snapshot_dict=None, pending_requests=None):
     """
     Listens for WS messages and updates snapshot_dict for balance changes.
     Also updates order_snapshot_dict for execution reports.
+    Resolves pending_requests futures for API responses.
     Never breaks on error; always continues unless ws is closed.
     """
     if order_snapshot_dict is None:
         order_snapshot_dict = {}
+    if pending_requests is None:
+        pending_requests = {}
 
     while True:
         try:
             msg = await ws.recv()
-            parse_account_balance_event(msg, snapshot_dict)
-            parse_execution_report_event(msg, order_snapshot_dict)
+            
+            # Try to parse as an event first
+            is_balance = parse_account_balance_event(msg, snapshot_dict)
+            is_exec = parse_execution_report_event(msg, order_snapshot_dict)
+            
+            # If not an event, check if it's an API response
+            if not is_balance and not is_exec:
+                data = json.loads(msg)
+                if isinstance(data, dict) and "id" in data:
+                    req_id = data["id"]
+                    if req_id in pending_requests:
+                        future = pending_requests.pop(req_id)
+                        if not future.done():
+                            if "error" in data:
+                                future.set_exception(Exception(data["error"]))
+                            else:
+                                future.set_result(data.get("result", data))
+
         except websockets.exceptions.ConnectionClosed:
             print(
                 f"[{now()}] [ERROR] WS connection closed in account_ws_receiver, exiting loop."

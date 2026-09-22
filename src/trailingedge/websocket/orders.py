@@ -7,6 +7,7 @@ Includes realistic paper trading balance and fill updates for DRY_RUN mode.
 
 import json
 import uuid
+import asyncio
 
 from trailingedge.auth.manager import get_server_timestamp
 from trailingedge.config import DRY_RUN
@@ -143,10 +144,11 @@ async def cancel_all_orders(ws, symbol="BTCFDUSD"):
     await ws.send(json.dumps(payload))
 
 
-async def query_order_status(ws, symbol, origClientOrderId):
+async def query_order_status(ws, symbol, origClientOrderId, pending_requests=None):
     """Query order status using WebSocket API."""
+    req_id = f"status_{origClientOrderId}"
     payload = {
-        "id": f"status_{origClientOrderId}",
+        "id": req_id,
         "method": "order.status",
         "params": {
             "symbol": symbol,
@@ -155,8 +157,23 @@ async def query_order_status(ws, symbol, origClientOrderId):
         }
     }
     if DRY_RUN:
-        return
+        return None
+    
+    future = None
+    if pending_requests is not None:
+        future = asyncio.Future()
+        pending_requests[req_id] = future
+        
     await ws.send(json.dumps(payload))
+    
+    if future is not None:
+        try:
+            return await asyncio.wait_for(future, timeout=5.0)
+        except asyncio.TimeoutError:
+            print(f"\n[ERROR] Timeout waiting for order.status response for {origClientOrderId}\n")
+            pending_requests.pop(req_id, None)
+            return None
+    return None
 
 
 async def place_oco_order(ws, symbol, side, quantity, limit_price, stop_price, account_snapshot=None, state=None):
